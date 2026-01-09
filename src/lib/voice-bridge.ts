@@ -682,7 +682,6 @@ export async function askForProject(): Promise<void> {
     // Use the most recently updated session's directory
     const mostRecent = sessions.sort((a, b) => b.time.updated - a.time.updated)[0];
     useConversationStore.getState().setProjectPath(mostRecent.directory);
-    console.log(`Using directory from recent session: ${mostRecent.directory}`);
     // Don't speak on startup - just connect silently
     return;
   }
@@ -697,7 +696,6 @@ export async function askForProject(): Promise<void> {
   
   // Use the first project (likely 'global')
   useConversationStore.getState().setProjectPath(projects[0].path);
-  console.log(`Using project: ${projects[0].name} at ${projects[0].path}`);
 }
 
 /**

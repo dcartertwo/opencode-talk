@@ -34,8 +34,6 @@ export function useVoiceInput() {
   
   // Handle incoming transcription
   const handleTranscription = useCallback(async (text: string) => {
-    console.log('Received transcription:', text);
-    
     // Set to processing state
     setVoiceState('processing');
     await invoke('set_voice_state', { voiceState: 'processing' });
@@ -76,7 +74,6 @@ export function useVoiceInput() {
     
     setVoiceState('listening');
     await invoke('set_voice_state', { voiceState: 'listening' });
-    console.log('Started listening');
   }, [setVoiceState]);
   
   // Stop listening
@@ -86,7 +83,6 @@ export function useVoiceInput() {
     
     setVoiceState('idle');
     await invoke('set_voice_state', { voiceState: 'idle' });
-    console.log('Stopped listening');
   }, [setVoiceState]);
   
   // Register global shortcuts
@@ -111,8 +107,6 @@ export function useVoiceInput() {
         await register(pttHotkey, async (event) => {
           if (!mounted) return;
           
-          console.log('Hotkey event:', event.state);
-          
           if (event.state === 'Pressed') {
             await startListening();
           } else if (event.state === 'Released') {
@@ -133,7 +127,6 @@ export function useVoiceInput() {
             setVoiceState('idle');
             setPendingConfirmation(null);
             await invoke('set_voice_state', { voiceState: 'idle' });
-            console.log('Interrupted by user');
           });
         }
         

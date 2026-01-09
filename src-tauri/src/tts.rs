@@ -498,6 +498,14 @@ pub async fn stop_speaking() -> Result<(), String> {
     Ok(())
 }
 
+/// Shutdown the audio player thread gracefully
+/// Call this on app exit to clean up resources
+pub fn shutdown_audio_player() {
+    if let Some(ref tx) = *AUDIO_TX.lock().unwrap() {
+        let _ = tx.send(AudioCommand::Shutdown);
+    }
+}
+
 /// Speak using macOS built-in `say` command
 async fn speak_macos(text: &str, voice: &str, speed: f32) -> Result<(), String> {
     // Convert speed to words per minute (default is ~175 wpm)

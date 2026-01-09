@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, Volume2, Loader2, Settings, MessageSquare, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useOpenCode } from '../hooks/useOpenCode';
@@ -11,7 +11,7 @@ import { StatusIndicator } from './StatusIndicator';
 
 export function FloatingPanel() {
   const settings = useSettingsStore();
-  const { streamingText, isStreaming, isConnecting } = useConversationStore();
+  const { isStreaming, isConnecting, streamingMessageId } = useConversationStore();
   const { 
     isConnected, 
     connectionError, 
@@ -25,12 +25,25 @@ export function FloatingPanel() {
   const { simulateInput } = useVoiceInput();
   
   const [inputText, setInputText] = useState('');
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  // Auto-scroll to bottom when messages or streaming text changes
+  // Handle scroll to detect if user is at bottom
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    // Consider "at bottom" if within 50px of the bottom
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsAtBottom(atBottom);
+  }, []);
+  
+  // Auto-scroll to bottom when messages change, but only if user is at bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingText]);
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isAtBottom]);
   
   // Handle manual text input (for testing)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,7 +98,11 @@ export function FloatingPanel() {
       </div>
       
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+      >
         {visibleMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
@@ -113,7 +130,17 @@ export function FloatingPanel() {
                 )}
               >
                 <p className="text-sm whitespace-pre-wrap">
-                  {message.spokenContent || message.content}
+                  {/* Always show content - spokenContent is only for TTS, not display */}
+                  {message.content || (
+                    // Show placeholder for empty streaming message
+                    isStreaming && message.id === streamingMessageId ? (
+                      <span className="text-gray-400 dark:text-gray-500">...</span>
+                    ) : null
+                  )}
+                  {/* Show typing cursor on streaming message */}
+                  {isStreaming && message.id === streamingMessageId && (
+                    <span className="typing-cursor" />
+                  )}
                 </p>
                 {message.isIncomplete && (
                   <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 flex items-center gap-1">
@@ -127,18 +154,6 @@ export function FloatingPanel() {
               </span>
             </div>
           ))
-        )}
-        
-        {/* Streaming response - show as it arrives */}
-        {isStreaming && streamingText && (
-          <div className="flex flex-col gap-1 items-start">
-            <div className="max-w-[85%] rounded-2xl px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md">
-              <p className="text-sm whitespace-pre-wrap">
-                {streamingText}
-                <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />
-              </p>
-            </div>
-          </div>
         )}
         
         {/* Processing indicator (only show when not streaming yet) */}

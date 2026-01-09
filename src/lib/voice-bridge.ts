@@ -294,8 +294,8 @@ async function sendMessageStreaming(
   const requestId = crypto.randomUUID();
   currentRequestId = requestId;
   
-  // Start streaming state
-  store.startStreaming();
+  // Start streaming - this creates a placeholder message and returns its ID
+  const streamingMessageId = store.startStreaming();
   store.setVoiceState('speaking');
   await invoke('set_voice_state', { voiceState: 'speaking' });
   isStreamingResponse = true;
@@ -304,6 +304,9 @@ async function sendMessageStreaming(
   let finalized = false;
   
   // Create sentence buffer that queues TTS for each sentence
+  // Note: We don't use the onTextUpdate callback here because the buffer's internal
+  // state can get out of sync when sentences are extracted. Instead, we update the UI
+  // directly with fullResponse after each delta.
   const sentenceBuffer = createSentenceBuffer(
     (sentence) => {
       // Check if this request is still active
@@ -320,14 +323,7 @@ async function sendMessageStreaming(
         console.error('[TTS] Error queuing sentence:', e);
       });
     },
-    (fullText) => {
-      // Check if this request is still active
-      if (currentRequestId !== requestId) {
-        return;
-      }
-      // Update UI with streaming text
-      store.setStreamingText(fullText);
-    },
+    undefined, // Don't use onTextUpdate - we'll update UI directly with fullResponse
     (error, sentence) => {
       // Error callback for sentence buffer
       console.error('[SentenceBuffer] Error processing sentence:', error, sentence);
@@ -346,7 +342,7 @@ async function sendMessageStreaming(
     let completionTimeout: ReturnType<typeof setTimeout> | null = null;
     
     // Helper to finalize the message (only runs once)
-    const finalizeMessage = () => {
+    const finalizeMessage = (options: { isIncomplete?: boolean } = {}) => {
       if (finalized) return;
       finalized = true;
       
@@ -363,18 +359,22 @@ async function sendMessageStreaming(
       activeEventSource = null;
       isStreamingResponse = false;
       
-      // Only add message if we have content
+      // Update the streaming message with final content
       if (fullResponse.length > 0) {
         const formatted = formatForVoice(fullResponse);
-        store.addMessage({
-          role: 'assistant',
+        store.updateMessage(streamingMessageId, {
           content: fullResponse,
           spokenContent: formatted.spokenText,
           filesChanged: formatted.filesChanged,
+          isIncomplete: options.isIncomplete,
         });
+        // Keep the message
+        store.stopStreaming({ keepMessage: true });
+      } else {
+        // No content - remove the placeholder message
+        store.stopStreaming({ keepMessage: false });
       }
       
-      store.stopStreaming();
       resolve(fullResponse || null);
     };
     
@@ -388,6 +388,10 @@ async function sendMessageStreaming(
           const delta = data.properties.delta;
           fullResponse += delta;
           sentenceBuffer.push(delta);
+          
+          // Update UI with full response directly (not via sentence buffer callback
+          // which can get out of sync when sentences are extracted)
+          store.updateStreamingContent(fullResponse);
           
           // Reset completion timeout - finalize after 500ms of no new text
           if (completionTimeout) {
@@ -406,14 +410,19 @@ async function sendMessageStreaming(
     };
     
     eventSource.onerror = () => {
-      // Only reject if we haven't started receiving a message
-      if (!messageStarted && !finalized) {
-        finalized = true;
-        eventSource.close();
-        activeEventSource = null;
-        isStreamingResponse = false;
-        store.stopStreaming();
-        reject(new Error('SSE connection failed'));
+      if (!finalized) {
+        if (messageStarted) {
+          // We have partial content - finalize as incomplete
+          finalizeMessage({ isIncomplete: true });
+        } else {
+          // No content received - clean up and reject
+          finalized = true;
+          eventSource.close();
+          activeEventSource = null;
+          isStreamingResponse = false;
+          store.stopStreaming({ keepMessage: false });
+          reject(new Error('SSE connection failed'));
+        }
       }
     };
     
@@ -437,7 +446,7 @@ async function sendMessageStreaming(
         eventSource.close();
         activeEventSource = null;
         isStreamingResponse = false;
-        store.stopStreaming();
+        store.stopStreaming({ keepMessage: false });
         reject(error);
       }
     });
@@ -580,9 +589,22 @@ export async function speak(text: string): Promise<void> {
 export async function stopSpeaking(): Promise<void> {
   const store = useConversationStore.getState();
   
+  // If we're streaming and have content, mark the message as incomplete
+  const streamingMessageId = store.streamingMessageId;
+  if (streamingMessageId && store.isStreaming) {
+    const message = store.messages.find(m => m.id === streamingMessageId);
+    if (message && message.content.trim()) {
+      // Has content - mark as incomplete
+      store.updateMessage(streamingMessageId, { isIncomplete: true });
+      store.stopStreaming({ keepMessage: true });
+    } else {
+      // No content - remove the message
+      store.stopStreaming({ keepMessage: false });
+    }
+  }
+  
   // Clean up all streaming state
   resetStreamingState();
-  store.stopStreaming();
   
   try {
     // Clear the audio queue and stop current playback

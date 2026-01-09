@@ -48,6 +48,7 @@ interface ConversationStore {
   // Streaming state - for live text updates during response
   streamingText: string;
   isStreaming: boolean;
+  streamingMessageId: string | null;  // ID of the message currently being streamed
   streamingError: string | null;
   
   // Pending confirmation for dangerous actions
@@ -83,8 +84,9 @@ interface ConversationStore {
   // Streaming actions
   setStreamingText: (text: string) => void;
   appendStreamingText: (delta: string) => void;
-  startStreaming: () => void;
-  stopStreaming: () => void;
+  startStreaming: () => string;  // Returns the streaming message ID
+  stopStreaming: (options?: { keepMessage?: boolean }) => void;
+  updateStreamingContent: (content: string) => void;  // Update streaming message content
   setStreamingError: (error: string | null) => void;
   // Toast actions
   addToast: (toast: Omit<Toast, 'id' | 'timestamp'>) => void;
@@ -110,6 +112,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
   messageHistoryLimit: 50,
   streamingText: '',
   isStreaming: false,
+  streamingMessageId: null,
   streamingError: null,
   pendingConfirmation: null,
   confirmationTimeoutId: null,
@@ -205,15 +208,66 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     streamingText: state.streamingText + delta,
   })),
   
-  startStreaming: () => set({ 
-    isStreaming: true, 
-    streamingText: '',
-    streamingError: null,
-  }),
+  startStreaming: () => {
+    const messageId = crypto.randomUUID();
+    const timestamp = Date.now();
+    
+    set((state) => ({ 
+      isStreaming: true, 
+      streamingText: '',
+      streamingMessageId: messageId,
+      streamingError: null,
+      // Add placeholder message for streaming
+      messages: [
+        ...state.messages,
+        {
+          id: messageId,
+          role: 'assistant' as const,
+          content: '',
+          timestamp,
+        },
+      ].slice(-state.messageHistoryLimit),
+    }));
+    
+    return messageId;
+  },
   
-  stopStreaming: () => set({ 
-    isStreaming: false,
-    streamingText: '',
+  stopStreaming: (options = {}) => {
+    const { keepMessage = true } = options;
+    const state = get();
+    const messageId = state.streamingMessageId;
+    
+    if (!keepMessage && messageId) {
+      // Remove the streaming message if it's empty or we don't want to keep it
+      const message = state.messages.find(m => m.id === messageId);
+      if (!message || !message.content.trim()) {
+        set((state) => ({
+          isStreaming: false,
+          streamingText: '',
+          streamingMessageId: null,
+          messages: state.messages.filter(m => m.id !== messageId),
+        }));
+        return;
+      }
+    }
+    
+    set({ 
+      isStreaming: false,
+      streamingText: '',
+      streamingMessageId: null,
+    });
+  },
+  
+  updateStreamingContent: (content) => set((state) => {
+    if (!state.streamingMessageId) return state;
+    return {
+      streamingText: content,  // Also update streamingText for backwards compatibility
+      messages: state.messages.map((msg) =>
+        msg.id === state.streamingMessageId
+          ? { ...msg, content }
+          : msg
+      ),
+    };
   }),
   
   setStreamingError: (error) => set({ streamingError: error }),
@@ -275,6 +329,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       messages: [],
       streamingText: '',
       isStreaming: false,
+      streamingMessageId: null,
       streamingError: null,
       pendingConfirmation: null,
       confirmationTimeoutId: null,

@@ -11,7 +11,17 @@ import { StatusIndicator } from './StatusIndicator';
 
 export function FloatingPanel() {
   const settings = useSettingsStore();
-  const { isStreaming, isConnecting, streamingMessageId } = useConversationStore();
+  const { 
+    isStreaming, 
+    isConnecting, 
+    streamingMessageId,
+    isHotkeyReady,
+    hotkeyRegistered,
+    hotkeyError,
+    isTtsReady,
+    ttsEngineReady,
+    addToast,
+  } = useConversationStore();
   const { 
     isConnected, 
     connectionError, 
@@ -28,6 +38,22 @@ export function FloatingPanel() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const hasShownReadyToast = useRef(false);
+  
+  // Derived state: app is "prepping" if connecting OR hotkey not registered
+  const isPrepping = isConnecting || !isHotkeyReady;
+  
+  // Show "Ready for voice input" toast once when all systems are ready
+  useEffect(() => {
+    if (!isPrepping && isConnected && isHotkeyReady && !hasShownReadyToast.current) {
+      hasShownReadyToast.current = true;
+      addToast({
+        type: 'success',
+        message: 'Ready for voice input',
+        duration: 2000,
+      });
+    }
+  }, [isPrepping, isConnected, isHotkeyReady, addToast]);
   
   // Handle scroll to detect if user is at bottom
   const handleScroll = useCallback(() => {
@@ -67,9 +93,15 @@ export function FloatingPanel() {
       {/* Status Bar - compact info bar below native title */}
       <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <StatusIndicator state={voiceState} />
+          {/* Spinner while prepping, status indicator when ready */}
+          {isPrepping ? (
+            <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
+          ) : (
+            <StatusIndicator state={voiceState} />
+          )}
+          
+          {/* Connection status */}
           <div className="flex items-center gap-1.5">
-            {/* Connection status icon */}
             {isConnecting ? (
               <Loader2 className="w-3 h-3 text-yellow-500 animate-spin" />
             ) : isConnected ? (
@@ -77,7 +109,7 @@ export function FloatingPanel() {
             ) : (
               <WifiOff className="w-3 h-3 text-red-500" />
             )}
-            <span className="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[120px]" title={connectionError || undefined}>
+            <span className="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[100px]" title={connectionError || undefined}>
               {isConnecting 
                 ? 'Connecting...'
                 : isConnected 
@@ -86,6 +118,40 @@ export function FloatingPanel() {
               }
             </span>
           </div>
+          
+          {/* Hotkey status - show after connected */}
+          {isConnected && (
+            <>
+              <span className="text-gray-300 dark:text-gray-600">•</span>
+              {hotkeyError ? (
+                <span 
+                  className="text-xs text-red-500 flex items-center gap-1 cursor-help"
+                  title={hotkeyError}
+                >
+                  {formatHotkey(settings.pushToTalkHotkey)}
+                  <AlertCircle className="w-3 h-3" />
+                </span>
+              ) : isHotkeyReady ? (
+                <span className="text-xs text-green-600 dark:text-green-400">
+                  {formatHotkey(hotkeyRegistered || settings.pushToTalkHotkey)} ready
+                </span>
+              ) : (
+                <span className="text-xs text-yellow-600 dark:text-yellow-400">
+                  {formatHotkey(settings.pushToTalkHotkey)}...
+                </span>
+              )}
+            </>
+          )}
+          
+          {/* TTS status - show after hotkey ready */}
+          {isConnected && isHotkeyReady && isTtsReady && ttsEngineReady && (
+            <>
+              <span className="text-gray-300 dark:text-gray-600">•</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {ttsEngineReady}
+              </span>
+            </>
+          )}
         </div>
         
         <button

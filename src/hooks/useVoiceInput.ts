@@ -23,6 +23,11 @@ interface TranscriptionEvent {
 export function useVoiceInput() {
   const settings = useSettingsStore();
   const conversation = useConversationStore();
+  // Get stable function references to avoid infinite loops in useEffect
+  const setVoiceState = useConversationStore((state) => state.setVoiceState);
+  const setPendingConfirmation = useConversationStore((state) => state.setPendingConfirmation);
+  const setHotkeyReady = useConversationStore((state) => state.setHotkeyReady);
+  const setHotkeyError = useConversationStore((state) => state.setHotkeyError);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const shortcutUnlistenRef = useRef<(() => Promise<void>) | null>(null);
   const isListeningRef = useRef(false);
@@ -32,16 +37,16 @@ export function useVoiceInput() {
     console.log('Received transcription:', text);
     
     // Set to processing state
-    conversation.setVoiceState('processing');
+    setVoiceState('processing');
     await invoke('set_voice_state', { voiceState: 'processing' });
     
     // Process the voice input
     await processVoiceInput(text);
     
     // Return to idle
-    conversation.setVoiceState('idle');
+    setVoiceState('idle');
     await invoke('set_voice_state', { voiceState: 'idle' });
-  }, [conversation]);
+  }, [setVoiceState]);
   
   // Listen for transcription events from SuperWhisper/Macrowhisper
   useEffect(() => {
@@ -69,34 +74,37 @@ export function useVoiceInput() {
     if (isListeningRef.current) return;
     isListeningRef.current = true;
     
-    conversation.setVoiceState('listening');
+    setVoiceState('listening');
     await invoke('set_voice_state', { voiceState: 'listening' });
     console.log('Started listening');
-  }, [conversation]);
+  }, [setVoiceState]);
   
   // Stop listening
   const stopListening = useCallback(async () => {
     if (!isListeningRef.current) return;
     isListeningRef.current = false;
     
-    conversation.setVoiceState('idle');
+    setVoiceState('idle');
     await invoke('set_voice_state', { voiceState: 'idle' });
     console.log('Stopped listening');
-  }, [conversation]);
+  }, [setVoiceState]);
   
   // Register global shortcuts
   useEffect(() => {
     let mounted = true;
     
+    // Reset hotkey ready state when re-registering
+    setHotkeyReady(false);
+    
     const registerShortcuts = async () => {
+      // Convert hotkey format for Tauri
+      const pttHotkey = settings.pushToTalkHotkey
+        .replace('Option', 'Alt')
+        .replace('Command', 'Meta');
+      
+      const interruptHotkey = settings.interruptHotkey;
+      
       try {
-        // Convert hotkey format for Tauri
-        let pttHotkey = settings.pushToTalkHotkey
-          .replace('Option', 'Alt')
-          .replace('Command', 'Meta');
-        
-        const interruptHotkey = settings.interruptHotkey;
-        
         console.log('Registering push-to-talk hotkey:', pttHotkey);
         
         // Register push-to-talk (press to start, release to stop)
@@ -122,11 +130,17 @@ export function useVoiceInput() {
             // Stop any speaking
             await stopSpeaking();
             isListeningRef.current = false;
-            conversation.setVoiceState('idle');
-            conversation.setPendingConfirmation(null);
+            setVoiceState('idle');
+            setPendingConfirmation(null);
             await invoke('set_voice_state', { voiceState: 'idle' });
             console.log('Interrupted by user');
           });
+        }
+        
+        // Mark hotkey as ready (use display format for UI)
+        if (mounted) {
+          setHotkeyReady(true, settings.pushToTalkHotkey);
+          console.log('Hotkey registered successfully:', settings.pushToTalkHotkey);
         }
         
         shortcutUnlistenRef.current = async () => {
@@ -140,7 +154,13 @@ export function useVoiceInput() {
           }
         };
       } catch (error) {
-        console.error('Failed to register shortcuts:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('Failed to register shortcuts:', errorMessage);
+        
+        if (mounted) {
+          setHotkeyReady(false);
+          setHotkeyError(`Hotkey registration failed: ${errorMessage}`);
+        }
       }
     };
     
@@ -148,9 +168,10 @@ export function useVoiceInput() {
     
     return () => {
       mounted = false;
+      setHotkeyReady(false);
       shortcutUnlistenRef.current?.();
     };
-  }, [settings.pushToTalkHotkey, settings.interruptHotkey, conversation, startListening, stopListening]);
+  }, [settings.pushToTalkHotkey, settings.interruptHotkey, setVoiceState, setPendingConfirmation, setHotkeyReady, setHotkeyError, startListening, stopListening]);
   
   // Simulate text input (for testing without voice)
   const simulateInput = useCallback(async (text: string) => {

@@ -44,6 +44,7 @@ pub async fn play_audio_file(path: &str) -> Result<(), String> {
 }
 
 /// List available macOS voices
+#[allow(dead_code)]
 pub async fn list_macos_voices() -> Result<Vec<String>, String> {
     let output = Command::new("say")
         .args(["-v", "?"])

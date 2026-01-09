@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSetupStore, type SetupStep } from '../../stores/setup';
 import { SetupProgress } from './SetupProgress';
-import { Welcome, VoiceInputChoice, SuperWhisperInstall, SuperWhisperConfigure, MacrowhisperInstall, StubStep, Ready } from './steps';
+import { Welcome, VoiceInputChoice, SuperWhisperInstall, SuperWhisperConfigure, MacrowhisperInstall, MacrowhisperConfigure, StubStep, Ready } from './steps';
 
 const slideVariants = {
   enter: (direction: number) => ({
@@ -32,13 +32,7 @@ function renderStep(step: SetupStep) {
     case 'macrowhisper-install':
       return <MacrowhisperInstall />;
     case 'macrowhisper-configure':
-      return (
-        <StubStep
-          title="Configuring Macrowhisper"
-          nextStep="voice-input-test"
-          skipStep="voice-output"
-        />
-      );
+      return <MacrowhisperConfigure />;
     case 'voice-input-test':
       return (
         <StubStep

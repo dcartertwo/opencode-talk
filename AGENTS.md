@@ -101,11 +101,13 @@ sentence-buffer.ts
     ▼ complete sentences
 invoke('speak_sentence')
     │
-    ▼ Rust tts.rs
+    ▼ Rust tts.rs (generation task)
 Kokoro server :7892 (or Piper fallback)
     │
-    ▼ audio file
-afplay (macOS audio)
+    ▼ audio file path
+Audio thread (rodio Sink)
+    │
+    ▼ seamless playback
 ```
 
 ### Kokoro Server (Subcomponent)
@@ -142,7 +144,7 @@ Started automatically by `lib.rs` on app launch.
 | File | Purpose |
 |------|---------|
 | `src/lib.rs` | Tauri setup, command registration, Kokoro server startup |
-| `src/tts.rs` | TTS implementation - audio queue, Kokoro/Piper/macOS engines |
+| `src/tts.rs` | TTS implementation - generation task + dedicated rodio audio thread for zero-gap playback |
 | `src/transcription_server.rs` | HTTP server receiving Macrowhisper transcriptions |
 | `scripts/kokoro_server.py` | Persistent Python server keeping Kokoro model warm |
 
@@ -237,8 +239,8 @@ Kokoro provides the best quality but requires Python + model. Piper is a lighter
 2. **Implement in Rust** (`src-tauri/src/tts.rs`):
    ```rust
    async fn speak_your_engine(text: &str, voice: &str, speed: f32) -> Result<(), String> {
-       // Generate audio file
-       // Play with afplay
+       // Generate audio file to temp path
+       // Send to audio thread: AUDIO_TX.send(AudioCommand::Play(path))
    }
    ```
 

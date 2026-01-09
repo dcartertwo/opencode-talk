@@ -37,7 +37,7 @@ export function StepContainer({
   className,
 }: StepContainerProps) {
   return (
-    <div className={cn('flex-1 flex flex-col px-12 py-6', className)}>
+    <div className={cn('flex-1 flex flex-col min-h-0 px-12 py-6', className)}>
       {/* Header with back button */}
       <div className="h-8 flex items-center">
         {showBack && onBack && (

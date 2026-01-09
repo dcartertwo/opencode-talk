@@ -26,7 +26,7 @@ export function CodeBlock({ code, language = 'bash', className }: CodeBlockProps
       'relative group rounded-lg bg-gray-900 overflow-hidden',
       className
     )}>
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800">
         <span className="text-xs text-gray-400 font-mono">{language}</span>
         <button
           onClick={handleCopy}
@@ -51,7 +51,7 @@ export function CodeBlock({ code, language = 'bash', className }: CodeBlockProps
           )}
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto">
+      <pre className="px-3 py-2 overflow-x-auto">
         <code className="text-sm text-gray-100 font-mono">{code}</code>
       </pre>
     </div>

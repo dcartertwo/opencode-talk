@@ -28,3 +28,6 @@ src-tauri/target/
 
 # Debug logs
 /tmp/opencode-talk-*
+
+# Documentation (temporary)
+docs/

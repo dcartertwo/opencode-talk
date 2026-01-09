@@ -43,6 +43,17 @@
         "resizable": true,
         "visible": false,
         "center": true
+      },
+      {
+        "label": "setup",
+        "title": "Setup - OpenCode Talk",
+        "width": 600,
+        "height": 520,
+        "resizable": false,
+        "visible": false,
+        "center": true,
+        "decorations": true,
+        "skipTaskbar": false
       }
     ],
     "security": {

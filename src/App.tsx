@@ -2,6 +2,7 @@ import { useEffect, useState, Component, type ReactNode } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { FloatingPanel } from './components/FloatingPanel';
 import { Settings } from './components/Settings';
+import { SetupWizard } from './components/setup/SetupWizard';
 import { ToastContainer } from './components/Toast';
 import './styles/globals.css';
 
@@ -43,7 +44,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   }
 }
 
-type WindowLabel = 'main' | 'settings';
+type WindowLabel = 'main' | 'settings' | 'setup';
 
 function App() {
   const [windowLabel, setWindowLabel] = useState<WindowLabel | null>(null);
@@ -65,6 +66,15 @@ function App() {
     return (
       <ErrorBoundary>
         <Settings />
+        <ToastContainer />
+      </ErrorBoundary>
+    );
+  }
+  
+  if (windowLabel === 'setup') {
+    return (
+      <ErrorBoundary>
+        <SetupWizard />
         <ToastContainer />
       </ErrorBoundary>
     );

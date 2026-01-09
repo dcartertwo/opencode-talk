@@ -309,6 +309,245 @@ async fn play_notification_sound(sound_name: String) -> Result<(), String> {
     audio::play_system_sound(&sound_name).await
 }
 
+// ============================================================================
+// Setup Wizard Commands
+// ============================================================================
+
+// Check if SuperWhisper is installed
+#[tauri::command]
+fn is_superwhisper_installed() -> bool {
+    std::path::Path::new("/Applications/superwhisper.app").exists()
+}
+
+// Get SuperWhisper hotkey from macOS defaults
+// Returns human-readable format like "⌘Space" or None if not found
+#[tauri::command]
+fn get_superwhisper_hotkey() -> Option<String> {
+    let output = std::process::Command::new("defaults")
+        .args(["read", "com.superduper.superwhisper", "KeyboardShortcuts_pushToTalk"])
+        .output()
+        .ok()?;
+    
+    if !output.status.success() {
+        return None;
+    }
+    
+    let json_str = String::from_utf8(output.stdout).ok()?;
+    decode_superwhisper_hotkey(&json_str.trim())
+}
+
+// Decode SuperWhisper hotkey JSON to human-readable format
+fn decode_superwhisper_hotkey(json: &str) -> Option<String> {
+    // Parse JSON like: {"carbonKeyCode":49,"carbonModifiers":256,"mouseButtonNumbers":[]}
+    let parsed: serde_json::Value = serde_json::from_str(json).ok()?;
+    
+    let key_code = parsed.get("carbonKeyCode")?.as_u64()? as u32;
+    let modifiers = parsed.get("carbonModifiers")?.as_u64()? as u32;
+    
+    let mut parts = Vec::new();
+    
+    // Carbon modifier flags (in standard macOS order)
+    if modifiers & 4096 != 0 { parts.push("⌃"); }  // control
+    if modifiers & 2048 != 0 { parts.push("⌥"); }  // option
+    if modifiers & 512 != 0 { parts.push("⇧"); }   // shift
+    if modifiers & 256 != 0 { parts.push("⌘"); }   // command
+    
+    // Common Carbon key codes
+    let key_name = match key_code {
+        0 => "A", 1 => "S", 2 => "D", 3 => "F", 4 => "H", 5 => "G", 6 => "Z", 7 => "X",
+        8 => "C", 9 => "V", 11 => "B", 12 => "Q", 13 => "W", 14 => "E", 15 => "R",
+        16 => "Y", 17 => "T", 18 => "1", 19 => "2", 20 => "3", 21 => "4", 22 => "6",
+        23 => "5", 24 => "=", 25 => "9", 26 => "7", 27 => "-", 28 => "8", 29 => "0",
+        31 => "O", 32 => "U", 34 => "I", 35 => "P", 37 => "L", 38 => "J", 40 => "K",
+        45 => "N", 46 => "M", 49 => "Space", 53 => "Escape",
+        122 => "F1", 120 => "F2", 99 => "F3", 118 => "F4", 96 => "F5",
+        97 => "F6", 98 => "F7", 100 => "F8", 101 => "F9", 109 => "F10",
+        103 => "F11", 111 => "F12",
+        _ => return None,
+    };
+    
+    parts.push(key_name);
+    Some(parts.join(""))
+}
+
+// Check if Macrowhisper is installed (command available in PATH)
+#[tauri::command]
+fn is_macrowhisper_installed() -> bool {
+    std::process::Command::new("which")
+        .arg("macrowhisper")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+// Check if Macrowhisper service is running
+#[tauri::command]
+fn is_macrowhisper_running() -> bool {
+    let output = std::process::Command::new("macrowhisper")
+        .arg("--service-status")
+        .output();
+    
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.contains("Running: Yes")
+        }
+        Err(_) => false,
+    }
+}
+
+// Check if Macrowhisper is configured with our opencodeTalk action
+#[tauri::command]
+fn is_macrowhisper_configured() -> bool {
+    if let Some(home) = dirs::home_dir() {
+        let config_path = home.join(".config/macrowhisper/macrowhisper.json");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            return content.contains("opencodeTalk");
+        }
+    }
+    false
+}
+
+// Check if Homebrew is installed
+#[tauri::command]
+fn is_homebrew_installed() -> bool {
+    // Check common Homebrew locations
+    std::path::Path::new("/opt/homebrew/bin/brew").exists() ||
+    std::path::Path::new("/usr/local/bin/brew").exists() ||
+    std::process::Command::new("which")
+        .arg("brew")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+// Configure Macrowhisper with our opencodeTalk action
+#[tauri::command]
+async fn configure_macrowhisper() -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let config_dir = home.join(".config/macrowhisper");
+    let config_path = config_dir.join("macrowhisper.json");
+    
+    // Create config directory if it doesn't exist
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    // Read existing config or create new one
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config: {}", e))?;
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    
+    // Set up defaults if not present
+    if config.get("defaults").is_none() {
+        config["defaults"] = serde_json::json!({});
+    }
+    config["defaults"]["activeAction"] = serde_json::json!("opencodeTalk");
+    config["defaults"]["pressReturn"] = serde_json::json!(false);
+    config["defaults"]["actionDelay"] = serde_json::json!(0.3);
+    
+    // Add our shell action
+    if config.get("scriptsShell").is_none() {
+        config["scriptsShell"] = serde_json::json!({});
+    }
+    config["scriptsShell"]["opencodeTalk"] = serde_json::json!({
+        "action": "curl -s -X POST http://127.0.0.1:7891/transcription -H 'Content-Type: application/json' -d '{\"text\": \"{{swResult}}\"}'",
+        "icon": "🎤"
+    });
+    
+    // Write config
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    std::fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+    
+    Ok(())
+}
+
+// Start Macrowhisper service
+#[tauri::command]
+async fn start_macrowhisper_service() -> Result<String, String> {
+    let output = std::process::Command::new("macrowhisper")
+        .arg("--start-service")
+        .output()
+        .map_err(|e| format!("Failed to start service: {}", e))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(format!("Service start failed: {}{}", stdout, stderr))
+    }
+}
+
+// Open SuperWhisper application
+#[tauri::command]
+fn open_superwhisper() -> Result<(), String> {
+    std::process::Command::new("open")
+        .args(["-a", "SuperWhisper"])
+        .spawn()
+        .map_err(|e| format!("Failed to open SuperWhisper: {}", e))?;
+    Ok(())
+}
+
+// Open System Settings to Keyboard pane (for dictation setup)
+#[tauri::command]
+fn open_keyboard_settings() -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+        .spawn()
+        .map_err(|e| format!("Failed to open settings: {}", e))?;
+    Ok(())
+}
+
+// Open a URL in the default browser
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+    Ok(())
+}
+
+// Show the setup wizard window
+#[tauri::command]
+fn show_setup_window(app_handle: AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("setup") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+// Hide the setup wizard window
+#[tauri::command]
+fn hide_setup_window(app_handle: AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("setup") {
+        let _ = window.hide();
+    }
+}
+
+// Finish setup: close setup window, show main window
+#[tauri::command]
+fn finish_setup(app_handle: AppHandle) {
+    if let Some(setup) = app_handle.get_webview_window("setup") {
+        let _ = setup.hide();
+    }
+    if let Some(main) = app_handle.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+}
+
+// ============================================================================
+// End Setup Wizard Commands
+// ============================================================================
+
 // Start the Kokoro TTS server (keeps model warm for fast generation)
 fn start_kokoro_server() {
     use std::process::{Command, Stdio};
@@ -426,6 +665,21 @@ pub fn run() {
             is_app_installed,
             is_command_available,
             play_notification_sound,
+            // Setup wizard commands
+            is_superwhisper_installed,
+            get_superwhisper_hotkey,
+            is_macrowhisper_installed,
+            is_macrowhisper_running,
+            is_macrowhisper_configured,
+            is_homebrew_installed,
+            configure_macrowhisper,
+            start_macrowhisper_service,
+            open_superwhisper,
+            open_keyboard_settings,
+            open_external_url,
+            show_setup_window,
+            hide_setup_window,
+            finish_setup,
         ])
         .setup(|app| {
             // Setup tray icon
@@ -444,10 +698,16 @@ pub fn run() {
             // Start Kokoro TTS server (keeps model warm for fast generation)
             start_kokoro_server();
             
-            // Show main window on startup for debugging
-            if let Some(window) = app.get_webview_window("main") {
+            // TODO: Check if setup is completed and show appropriate window
+            // For now, show setup window for testing
+            if let Some(window) = app.get_webview_window("setup") {
                 let _ = window.show();
                 let _ = window.set_focus();
+            }
+            
+            // Hide main window on startup (will be shown after setup)
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
             }
             
             // Hide settings window on startup

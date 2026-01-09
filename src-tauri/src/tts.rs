@@ -17,6 +17,10 @@ static CURRENT_PROCESS: Lazy<Arc<Mutex<Option<tokio::process::Child>>>> =
 static GENERATION_QUEUE: Lazy<Arc<Mutex<Option<mpsc::Sender<GenerationTask>>>>> = 
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
+// Playback queue - receives generated audio file paths for sequential playback
+static PLAYBACK_QUEUE: Lazy<Arc<Mutex<Option<mpsc::Sender<PlaybackTask>>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(None)));
+
 // Stop signal using watch channel for proper synchronization
 static STOP_SIGNAL: Lazy<Arc<Mutex<Option<watch::Sender<bool>>>>> = 
     Lazy::new(|| Arc::new(Mutex::new(None)));
@@ -33,50 +37,76 @@ struct GenerationTask {
     engine: String,
 }
 
-/// Initialize the audio player background task
+#[derive(Debug)]
+struct PlaybackTask {
+    file_path: String,
+}
+
+/// Initialize the audio player background tasks
 /// Call this once at app startup
+/// 
+/// This spawns TWO tasks for pipelined TTS:
+/// 1. Generation task: Receives text, generates audio files, sends to playback queue
+/// 2. Playback task: Receives audio files, plays them in order
+/// 
+/// This allows generation of sentence N+1 while sentence N is playing,
+/// eliminating pauses between sentences.
 pub async fn init_audio_player() {
-    let (tx, mut rx) = mpsc::channel::<GenerationTask>(64); // Increased buffer size
-    let (stop_tx, mut stop_rx) = watch::channel(false);
+    let (gen_tx, mut gen_rx) = mpsc::channel::<GenerationTask>(64);
+    let (play_tx, mut play_rx) = mpsc::channel::<PlaybackTask>(64);
+    let (stop_tx, stop_rx) = watch::channel(false);
     
-    // Store the sender and stop signal
+    // Store the senders and stop signal
     {
         let mut queue = GENERATION_QUEUE.lock().await;
-        *queue = Some(tx);
+        *queue = Some(gen_tx);
+    }
+    {
+        let mut queue = PLAYBACK_QUEUE.lock().await;
+        *queue = Some(play_tx.clone());
     }
     {
         let mut stop = STOP_SIGNAL.lock().await;
         *stop = Some(stop_tx);
     }
     
-    // Spawn the generation + playback task
-    // This processes tasks in order, generating and playing sequentially
+    // Clone stop_rx for each task
+    let mut gen_stop_rx = stop_rx.clone();
+    let mut play_stop_rx = stop_rx;
+    
+    // Spawn the GENERATION task
+    // This generates audio files and sends them to the playback queue
     tokio::spawn(async move {
         loop {
             tokio::select! {
+                biased; // Check stop signal first
+                
                 // Check for stop signal
-                _ = stop_rx.changed() => {
-                    if *stop_rx.borrow() {
+                _ = gen_stop_rx.changed() => {
+                    if *gen_stop_rx.borrow() {
                         // Drain remaining tasks from queue when stopped
-                        while rx.try_recv().is_ok() {}
+                        while gen_rx.try_recv().is_ok() {}
                         // Wait for stop signal to be cleared
-                        while *stop_rx.borrow() {
-                            if stop_rx.changed().await.is_err() {
+                        while *gen_stop_rx.borrow() {
+                            if gen_stop_rx.changed().await.is_err() {
                                 return; // Channel closed
                             }
                         }
                     }
                 }
-                // Process next task
-                task = rx.recv() => {
+                // Process next generation task
+                task = gen_rx.recv() => {
                     let Some(task) = task else {
                         break; // Channel closed
                     };
                     
                     // Check stop signal before processing
-                    if *stop_rx.borrow() {
+                    if *gen_stop_rx.borrow() {
                         continue;
                     }
+                    
+                    let gen_start = std::time::Instant::now();
+                    eprintln!("[TTS-GEN] Starting generation for: {}...", &task.text.chars().take(30).collect::<String>());
                     
                     // Generate the audio based on engine
                     let audio_result = match task.engine.as_str() {
@@ -85,34 +115,93 @@ pub async fn init_audio_player() {
                         _ => generate_kokoro_audio_fast(&task.text, &task.voice, task.speed).await,
                     };
                     
+                    eprintln!("[TTS-GEN] Generation took: {:?}", gen_start.elapsed());
+                    
                     match audio_result {
                         Ok(file_path) => {
-                            // Check stop signal again before playing
-                            if *stop_rx.borrow() {
+                            // Check stop signal again before queueing for playback
+                            if *gen_stop_rx.borrow() {
                                 let _ = tokio::fs::remove_file(&file_path).await;
-                                // Remove from pending temp files
                                 let mut pending = PENDING_TEMP_FILES.lock().await;
                                 pending.remove(&file_path);
                                 continue;
                             }
                             
-                            // Play the audio file using cancellable playback
-                            if let Err(e) = play_audio_file_cancellable(&file_path, &mut stop_rx).await {
-                                if e != "cancelled" {
-                                    eprintln!("[TTS-RUST] Error playing audio: {}", e);
-                                }
+                            // Track the temp file
+                            {
+                                let mut pending = PENDING_TEMP_FILES.lock().await;
+                                pending.insert(file_path.clone());
                             }
                             
-                            // Clean up the temp file
-                            let _ = tokio::fs::remove_file(&file_path).await;
-                            // Remove from pending temp files
-                            let mut pending = PENDING_TEMP_FILES.lock().await;
-                            pending.remove(&file_path);
+                            // Send to playback queue
+                            if play_tx.send(PlaybackTask { file_path }).await.is_err() {
+                                break; // Playback channel closed
+                            }
                         }
                         Err(e) => {
-                            eprintln!("[TTS-RUST] Error generating audio: {}", e);
+                            eprintln!("[TTS-GEN] Error generating audio: {}", e);
                         }
                     }
+                }
+            }
+        }
+    });
+    
+    // Spawn the PLAYBACK task
+    // This plays audio files in order and cleans them up
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased; // Check stop signal first
+                
+                // Check for stop signal
+                _ = play_stop_rx.changed() => {
+                    if *play_stop_rx.borrow() {
+                        // Drain remaining playback tasks when stopped
+                        while let Ok(task) = play_rx.try_recv() {
+                            // Clean up the file
+                            let _ = tokio::fs::remove_file(&task.file_path).await;
+                            let mut pending = PENDING_TEMP_FILES.lock().await;
+                            pending.remove(&task.file_path);
+                        }
+                        // Wait for stop signal to be cleared
+                        while *play_stop_rx.borrow() {
+                            if play_stop_rx.changed().await.is_err() {
+                                return; // Channel closed
+                            }
+                        }
+                    }
+                }
+                // Process next playback task
+                task = play_rx.recv() => {
+                    let Some(task) = task else {
+                        break; // Channel closed
+                    };
+                    
+                    // Check stop signal before playing
+                    if *play_stop_rx.borrow() {
+                        let _ = tokio::fs::remove_file(&task.file_path).await;
+                        let mut pending = PENDING_TEMP_FILES.lock().await;
+                        pending.remove(&task.file_path);
+                        continue;
+                    }
+                    
+                    let play_start = std::time::Instant::now();
+                    eprintln!("[TTS-PLAY] Starting playback: {}", &task.file_path);
+                    
+                    // Play the audio file
+                    if let Err(e) = play_audio_file_cancellable(&task.file_path, &mut play_stop_rx).await {
+                        if e != "cancelled" {
+                            eprintln!("[TTS-PLAY] Error playing audio: {}", e);
+                        }
+                    }
+                    
+                    eprintln!("[TTS-PLAY] Playback took: {:?}", play_start.elapsed());
+                    
+                    // Clean up the temp file
+                    let _ = tokio::fs::remove_file(&task.file_path).await;
+                    let mut pending = PENDING_TEMP_FILES.lock().await;
+                    pending.remove(&task.file_path);
                 }
             }
         }

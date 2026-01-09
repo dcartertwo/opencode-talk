@@ -26,6 +26,39 @@ def init_pipeline():
         pipeline = KPipeline(lang_code='a')
     return pipeline
 
+def trim_silence(audio, sample_rate=24000, threshold_db=-40, min_silence_ms=100):
+    """
+    Trim trailing silence from audio.
+    
+    Args:
+        audio: numpy array of audio samples
+        sample_rate: audio sample rate
+        threshold_db: silence threshold in dB (below this is considered silence)
+        min_silence_ms: minimum silence duration to keep at the end (in milliseconds)
+    """
+    if len(audio) == 0:
+        return audio
+    
+    # Convert threshold from dB to amplitude
+    threshold = 10 ** (threshold_db / 20)
+    
+    # Find the last sample above threshold
+    abs_audio = np.abs(audio)
+    above_threshold = abs_audio > threshold
+    
+    if not np.any(above_threshold):
+        # All silence, return minimal audio
+        return audio[:int(sample_rate * 0.05)]  # 50ms
+    
+    # Find last non-silent sample
+    last_sound_idx = np.max(np.where(above_threshold)[0])
+    
+    # Add a small buffer of silence at the end (for natural speech)
+    min_silence_samples = int(sample_rate * min_silence_ms / 1000)
+    end_idx = min(last_sound_idx + min_silence_samples, len(audio))
+    
+    return audio[:end_idx]
+
 class TTSHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Suppress logging
@@ -57,9 +90,14 @@ class TTSHandler(BaseHTTPRequestHandler):
                     self.send_error(500, 'No audio generated')
                     return
                 
+                # Convert to numpy array and trim trailing silence
+                audio_array = np.array(all_audio)
+                audio_array = trim_silence(audio_array, sample_rate=24000, 
+                                          threshold_db=-40, min_silence_ms=50)
+                
                 # Write to temp file
                 temp_file = tempfile.mktemp(suffix='.wav')
-                sf.write(temp_file, np.array(all_audio), 24000)
+                sf.write(temp_file, audio_array, 24000)
                 
                 # Return file path
                 self.send_response(200)

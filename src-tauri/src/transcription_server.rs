@@ -1,9 +1,7 @@
-/**
- * Local HTTP server to receive transcriptions from Macrowhisper
- * 
- * Macrowhisper is configured to POST transcriptions to http://localhost:7891/transcription
- * We receive the text and emit it as a Tauri event to the frontend.
- */
+//! Local HTTP server to receive transcriptions from Macrowhisper
+//!
+//! Macrowhisper is configured to POST transcriptions to http://localhost:7891/transcription
+//! We receive the text and emit it as a Tauri event to the frontend.
 
 use std::thread;
 use tauri::{AppHandle, Emitter};
@@ -100,10 +98,4 @@ pub fn start_server(app_handle: AppHandle) {
             let _ = request.respond(response);
         }
     });
-}
-
-/// Get the transcription server URL for configuring Macrowhisper
-#[allow(dead_code)]
-pub fn get_server_url() -> String {
-    format!("http://127.0.0.1:{}/transcription", SERVER_PORT)
 }

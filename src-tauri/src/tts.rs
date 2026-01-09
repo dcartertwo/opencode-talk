@@ -359,84 +359,6 @@ async fn generate_kokoro_audio_fast(text: &str, voice: &str, speed: f32) -> Resu
     Ok(file_path)
 }
 
-/// Generate audio file using Kokoro TTS (slow - spawns new process)
-/// Fallback if server is not running
-#[allow(dead_code)]
-async fn generate_kokoro_audio(text: &str, voice: &str, speed: f32) -> Result<String, String> {
-    // Create a temp file for the audio output
-    let temp_file = format!("/tmp/opencode-talk-sentence-{}-{}.wav", 
-        std::process::id(), 
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    
-    // Python script to run Kokoro
-    let python_script = format!(r#"
-import sys
-try:
-    from kokoro import KPipeline
-    import soundfile as sf
-    
-    pipeline = KPipeline(lang_code='a')
-    text = sys.argv[1]
-    voice = sys.argv[2]
-    speed = float(sys.argv[3])
-    output_file = sys.argv[4]
-    
-    generator = pipeline(text, voice=voice, speed=speed)
-    
-    # Concatenate all audio chunks
-    all_audio = []
-    for i, (gs, ps, audio) in enumerate(generator):
-        all_audio.extend(audio)
-    
-    if all_audio:
-        import numpy as np
-        sf.write(output_file, np.array(all_audio), 24000)
-        print("OK")
-    else:
-        print("No audio generated")
-        sys.exit(1)
-except ImportError as e:
-    print(f"Kokoro not installed: {{e}}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Error: {{e}}")
-    sys.exit(1)
-"#);
-    
-    // Write script to temp file
-    let script_file = format!("/tmp/opencode-talk-kokoro-{}-{}.py", 
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    tokio::fs::write(&script_file, &python_script).await
-        .map_err(|e| format!("Failed to write script: {}", e))?;
-    
-    // Run the Python script
-    let output = Command::new("python3")
-        .args([&script_file, text, voice, &speed.to_string(), &temp_file])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run Kokoro: {}", e))?;
-    
-    // Clean up script file
-    let _ = tokio::fs::remove_file(&script_file).await;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!("Kokoro failed: {} {}", stdout, stderr));
-    }
-    
-    Ok(temp_file)
-}
-
 /// Clear the audio queue and stop current playback
 pub async fn clear_audio_queue() -> Result<(), String> {
     // Set stop signal using watch channel (stops generation task)
@@ -496,6 +418,14 @@ pub async fn stop_speaking() -> Result<(), String> {
     }
     
     Ok(())
+}
+
+/// Shutdown the audio player thread gracefully
+/// Call this on app exit to clean up resources
+pub fn shutdown_audio_player() {
+    if let Some(ref tx) = *AUDIO_TX.lock().unwrap() {
+        let _ = tx.send(AudioCommand::Shutdown);
+    }
 }
 
 /// Speak using macOS built-in `say` command
@@ -616,7 +546,7 @@ async fn speak_kokoro(text: &str, voice: &str, speed: f32) -> Result<(), String>
     let temp_file = format!("/tmp/opencode-talk-{}.wav", std::process::id());
     
     // Python script to run Kokoro
-    let python_script = format!(r#"
+    const KOKORO_SCRIPT: &str = r#"
 import sys
 try:
     from kokoro import KPipeline
@@ -643,16 +573,16 @@ try:
         print("No audio generated")
         sys.exit(1)
 except ImportError as e:
-    print(f"Kokoro not installed: {{e}}")
+    print(f"Kokoro not installed: {e}")
     sys.exit(1)
 except Exception as e:
-    print(f"Error: {{e}}")
+    print(f"Error: {e}")
     sys.exit(1)
-"#);
+"#;
     
     // Write script to temp file
     let script_file = format!("/tmp/opencode-talk-kokoro-{}.py", std::process::id());
-    tokio::fs::write(&script_file, &python_script).await
+    tokio::fs::write(&script_file, KOKORO_SCRIPT).await
         .map_err(|e| format!("Failed to write script: {}", e))?;
     
     // Run the Python script

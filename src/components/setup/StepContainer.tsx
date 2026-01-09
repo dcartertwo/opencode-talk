@@ -37,7 +37,7 @@ export function StepContainer({
   className,
 }: StepContainerProps) {
   return (
-    <div className={cn('flex-1 flex flex-col px-12 py-8', className)}>
+    <div className={cn('flex-1 flex flex-col px-12 py-6', className)}>
       {/* Header with back button */}
       <div className="h-8 flex items-center">
         {showBack && onBack && (
@@ -58,12 +58,12 @@ export function StepContainer({
       </div>
       
       {/* Content */}
-      <div className="flex-1 mt-8">
+      <div className="flex-1 mt-6 min-h-0 overflow-y-auto">
         {children}
       </div>
       
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-6 mt-auto">
+      {/* Footer - always visible */}
+      <div className="flex-shrink-0 flex items-center justify-between pt-4">
         <div>
           {showSkip && onSkip && (
             <SkipLink onClick={onSkip}>{skipLabel}</SkipLink>

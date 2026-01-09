@@ -4,3 +4,4 @@ export { SkipLink } from './SkipLink';
 export { DetectionIndicator, type DetectionStatus } from './DetectionIndicator';
 export { RadioCard } from './RadioCard';
 export { CodeBlock } from './CodeBlock';
+export { SuperWhisperIllustration } from './SuperWhisperIllustration';

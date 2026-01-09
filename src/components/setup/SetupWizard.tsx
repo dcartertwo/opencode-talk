@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSetupStore, type SetupStep } from '../../stores/setup';
 import { SetupProgress } from './SetupProgress';
-import { Welcome, VoiceInputChoice, StubStep, Ready } from './steps';
+import { Welcome, VoiceInputChoice, SuperWhisperInstall, StubStep, Ready } from './steps';
 
 const slideVariants = {
   enter: (direction: number) => ({
@@ -26,13 +26,7 @@ function renderStep(step: SetupStep) {
     case 'voice-input-choice':
       return <VoiceInputChoice />;
     case 'superwhisper-install':
-      return (
-        <StubStep
-          title="Install SuperWhisper"
-          nextStep="superwhisper-configure"
-          skipStep="voice-output"
-        />
-      );
+      return <SuperWhisperInstall />;
     case 'superwhisper-configure':
       return (
         <StubStep
@@ -136,7 +130,7 @@ export function SetupWizard() {
   }, [refreshDetection]);
   
   return (
-    <div className="h-screen flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
+    <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
       {/* Progress indicator - hide on welcome and ready */}
       {currentStep !== 'welcome' && currentStep !== 'ready' && (
         <SetupProgress />

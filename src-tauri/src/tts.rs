@@ -1,9 +1,13 @@
 use std::process::Stdio;
+use std::collections::HashSet;
 use tokio::process::Command;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use once_cell::sync::Lazy;
+
+// Global state for tracking spawned process PIDs (fixes system-wide pkill issue)
+static SPAWNED_PIDS: Lazy<Arc<Mutex<HashSet<u32>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 // Global state for tracking the current TTS process
 static CURRENT_PROCESS: Lazy<Arc<Mutex<Option<tokio::process::Child>>>> = 
@@ -13,16 +17,16 @@ static CURRENT_PROCESS: Lazy<Arc<Mutex<Option<tokio::process::Child>>>> =
 static GENERATION_QUEUE: Lazy<Arc<Mutex<Option<mpsc::Sender<GenerationTask>>>>> = 
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
-// Flag to signal the audio player to stop
-static STOP_SIGNAL: Lazy<Arc<Mutex<bool>>> = 
-    Lazy::new(|| Arc::new(Mutex::new(false)));
+// Stop signal using watch channel for proper synchronization
+static STOP_SIGNAL: Lazy<Arc<Mutex<Option<watch::Sender<bool>>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(None)));
 
-// Sequence counter for ordering
-static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// Track pending temp files for cleanup on abort
+static PENDING_TEMP_FILES: Lazy<Arc<Mutex<HashSet<String>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 #[derive(Debug)]
 struct GenerationTask {
-    sequence: u64,
     text: String,
     voice: String,
     speed: f32,
@@ -32,71 +36,105 @@ struct GenerationTask {
 /// Initialize the audio player background task
 /// Call this once at app startup
 pub async fn init_audio_player() {
-    let (tx, mut rx) = mpsc::channel::<GenerationTask>(32);
+    let (tx, mut rx) = mpsc::channel::<GenerationTask>(64); // Increased buffer size
+    let (stop_tx, mut stop_rx) = watch::channel(false);
     
-    // Store the sender
+    // Store the sender and stop signal
     {
         let mut queue = GENERATION_QUEUE.lock().await;
         *queue = Some(tx);
+    }
+    {
+        let mut stop = STOP_SIGNAL.lock().await;
+        *stop = Some(stop_tx);
     }
     
     // Spawn the generation + playback task
     // This processes tasks in order, generating and playing sequentially
     tokio::spawn(async move {
-        while let Some(task) = rx.recv().await {
-            // Check stop signal before processing
-            {
-                let stop = STOP_SIGNAL.lock().await;
-                if *stop {
-                    continue;
-                }
-            }
-            
-            // Process TTS task
-            
-            // Generate the audio based on engine
-            let audio_result = match task.engine.as_str() {
-                "piper" => generate_piper_audio(&task.text, &task.voice, task.speed).await,
-                "kokoro" => generate_kokoro_audio_fast(&task.text, &task.voice, task.speed).await,
-                _ => generate_kokoro_audio_fast(&task.text, &task.voice, task.speed).await, // default to kokoro
-            };
-            
-            match audio_result {
-                Ok(file_path) => {
-                    // Check stop signal again before playing
-                    {
-                        let stop = STOP_SIGNAL.lock().await;
-                        if *stop {
-                            let _ = tokio::fs::remove_file(&file_path).await;
-                            continue;
+        loop {
+            tokio::select! {
+                // Check for stop signal
+                _ = stop_rx.changed() => {
+                    if *stop_rx.borrow() {
+                        // Drain remaining tasks from queue when stopped
+                        while rx.try_recv().is_ok() {}
+                        // Wait for stop signal to be cleared
+                        while *stop_rx.borrow() {
+                            if stop_rx.changed().await.is_err() {
+                                return; // Channel closed
+                            }
                         }
                     }
+                }
+                // Process next task
+                task = rx.recv() => {
+                    let Some(task) = task else {
+                        break; // Channel closed
+                    };
                     
-                    // Play the audio file
-                    if let Err(e) = play_audio_file(&file_path).await {
-                        eprintln!("[TTS-RUST] Error playing audio: {}", e);
+                    // Check stop signal before processing
+                    if *stop_rx.borrow() {
+                        continue;
                     }
                     
-                    // Clean up the temp file
-                    let _ = tokio::fs::remove_file(&file_path).await;
-                }
-                Err(e) => {
-                    eprintln!("[TTS-RUST] Error generating audio: {}", e);
+                    // Generate the audio based on engine
+                    let audio_result = match task.engine.as_str() {
+                        "piper" => generate_piper_audio(&task.text, &task.voice, task.speed).await,
+                        "kokoro" => generate_kokoro_audio_fast(&task.text, &task.voice, task.speed).await,
+                        _ => generate_kokoro_audio_fast(&task.text, &task.voice, task.speed).await,
+                    };
+                    
+                    match audio_result {
+                        Ok(file_path) => {
+                            // Check stop signal again before playing
+                            if *stop_rx.borrow() {
+                                let _ = tokio::fs::remove_file(&file_path).await;
+                                // Remove from pending temp files
+                                let mut pending = PENDING_TEMP_FILES.lock().await;
+                                pending.remove(&file_path);
+                                continue;
+                            }
+                            
+                            // Play the audio file using cancellable playback
+                            if let Err(e) = play_audio_file_cancellable(&file_path, &mut stop_rx).await {
+                                if e != "cancelled" {
+                                    eprintln!("[TTS-RUST] Error playing audio: {}", e);
+                                }
+                            }
+                            
+                            // Clean up the temp file
+                            let _ = tokio::fs::remove_file(&file_path).await;
+                            // Remove from pending temp files
+                            let mut pending = PENDING_TEMP_FILES.lock().await;
+                            pending.remove(&file_path);
+                        }
+                        Err(e) => {
+                            eprintln!("[TTS-RUST] Error generating audio: {}", e);
+                        }
+                    }
                 }
             }
         }
     });
 }
 
-/// Play a single audio file and wait for completion
-async fn play_audio_file(file_path: &str) -> Result<(), String> {
-    
-    let mut afplay = Command::new("afplay")
+/// Play a single audio file with cancellation support (macOS only)
+#[cfg(target_os = "macos")]
+async fn play_audio_file_cancellable(file_path: &str, stop_rx: &mut watch::Receiver<bool>) -> Result<(), String> {
+    let afplay = Command::new("afplay")
         .arg(file_path)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to play audio: {}", e))?;
+    
+    // Track the PID so we can kill only this process
+    let pid = afplay.id();
+    if let Some(pid) = pid {
+        let mut pids = SPAWNED_PIDS.lock().await;
+        pids.insert(pid);
+    }
     
     // Store the process handle so it can be killed if needed
     {
@@ -104,14 +142,35 @@ async fn play_audio_file(file_path: &str) -> Result<(), String> {
         *process = Some(afplay);
     }
     
-    // Wait for playback to complete - need to re-acquire lock and wait
+    // Wait for playback to complete or stop signal
     loop {
+        // Check stop signal
+        if *stop_rx.borrow() {
+            // Kill the process
+            let mut process = CURRENT_PROCESS.lock().await;
+            if let Some(mut child) = process.take() {
+                let _ = child.kill().await;
+            }
+            // Remove from tracked PIDs
+            if let Some(pid) = pid {
+                let mut pids = SPAWNED_PIDS.lock().await;
+                pids.remove(&pid);
+            }
+            return Err("cancelled".to_string());
+        }
+        
         let mut process = CURRENT_PROCESS.lock().await;
         if let Some(ref mut child) = *process {
             match child.try_wait() {
                 Ok(Some(_status)) => {
                     // Process finished
                     *process = None;
+                    // Remove from tracked PIDs
+                    if let Some(pid) = pid {
+                        drop(process);
+                        let mut pids = SPAWNED_PIDS.lock().await;
+                        pids.remove(&pid);
+                    }
                     break;
                 }
                 Ok(None) => {
@@ -121,6 +180,12 @@ async fn play_audio_file(file_path: &str) -> Result<(), String> {
                 }
                 Err(_) => {
                     *process = None;
+                    // Remove from tracked PIDs
+                    if let Some(pid) = pid {
+                        drop(process);
+                        let mut pids = SPAWNED_PIDS.lock().await;
+                        pids.remove(&pid);
+                    }
                     break;
                 }
             }
@@ -133,13 +198,16 @@ async fn play_audio_file(file_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Platform stub for non-macOS systems
+#[cfg(not(target_os = "macos"))]
+async fn play_audio_file_cancellable(_file_path: &str, _stop_rx: &mut watch::Receiver<bool>) -> Result<(), String> {
+    Err("Audio playback is only supported on macOS".to_string())
+}
+
 /// Queue a sentence for TTS generation and playback
 /// Returns immediately - generation happens in order in background
 pub async fn speak_sentence(text: &str, voice: &str, speed: f32, engine: &str) -> Result<(), String> {
-    let seq = SEQUENCE.fetch_add(1, Ordering::SeqCst);
-    
     let task = GenerationTask {
-        sequence: seq,
         text: text.to_string(),
         voice: voice.to_string(),
         speed,
@@ -265,6 +333,7 @@ async fn generate_kokoro_audio_fast(text: &str, voice: &str, speed: f32) -> Resu
 
 /// Generate audio file using Kokoro TTS (slow - spawns new process)
 /// Fallback if server is not running
+#[allow(dead_code)]
 async fn generate_kokoro_audio(text: &str, voice: &str, speed: f32) -> Result<String, String> {
     // Create a temp file for the audio output
     let temp_file = format!("/tmp/opencode-talk-sentence-{}-{}.wav", 
@@ -342,24 +411,32 @@ except Exception as e:
 
 /// Clear the audio queue and stop current playback
 pub async fn clear_audio_queue() -> Result<(), String> {
-    
-    // Set stop signal
+    // Set stop signal using watch channel
     {
-        let mut stop = STOP_SIGNAL.lock().await;
-        *stop = true;
+        let stop = STOP_SIGNAL.lock().await;
+        if let Some(ref tx) = *stop {
+            let _ = tx.send(true);
+        }
     }
     
     // Kill current playback
     stop_speaking().await?;
     
-    // Reset sequence counter
-    SEQUENCE.store(0, Ordering::SeqCst);
+    // Clean up any pending temp files
+    {
+        let mut pending = PENDING_TEMP_FILES.lock().await;
+        for file in pending.drain() {
+            let _ = tokio::fs::remove_file(&file).await;
+        }
+    }
     
     // Reset stop signal after a short delay to allow queue to drain
     tokio::spawn(async {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let mut stop = STOP_SIGNAL.lock().await;
-        *stop = false;
+        let stop = STOP_SIGNAL.lock().await;
+        if let Some(ref tx) = *stop {
+            let _ = tx.send(false);
+        }
     });
     
     Ok(())
@@ -381,22 +458,32 @@ pub async fn speak(text: &str, engine: &str, voice: &str, speed: f32) -> Result<
 
 /// Stop any currently playing TTS
 pub async fn stop_speaking() -> Result<(), String> {
-    // Kill any running TTS process
+    // Kill the current tracked process
     let mut process = CURRENT_PROCESS.lock().await;
     if let Some(mut child) = process.take() {
         let _ = child.kill().await;
     }
+    drop(process);
     
-    // Also kill any afplay or say processes that might be running
-    let _ = Command::new("pkill")
-        .args(["-9", "say"])
-        .output()
-        .await;
+    // Kill only our spawned processes by PID (not system-wide pkill)
+    let pids_to_kill: Vec<u32> = {
+        let pids = SPAWNED_PIDS.lock().await;
+        pids.iter().copied().collect()
+    };
     
-    let _ = Command::new("pkill")
-        .args(["-9", "afplay"])
-        .output()
-        .await;
+    for pid in pids_to_kill {
+        // Use kill command with specific PID
+        let _ = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output()
+            .await;
+    }
+    
+    // Clear the PIDs set
+    {
+        let mut pids = SPAWNED_PIDS.lock().await;
+        pids.clear();
+    }
     
     Ok(())
 }

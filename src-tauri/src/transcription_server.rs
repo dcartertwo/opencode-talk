@@ -5,8 +5,6 @@
  * We receive the text and emit it as a Tauri event to the frontend.
  */
 
-use std::io::Read;
-use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter};
 use tiny_http::{Server, Response, Method, Header};
@@ -105,6 +103,7 @@ pub fn start_server(app_handle: AppHandle) {
 }
 
 /// Get the transcription server URL for configuring Macrowhisper
+#[allow(dead_code)]
 pub fn get_server_url() -> String {
     format!("http://127.0.0.1:{}/transcription", SERVER_PORT)
 }

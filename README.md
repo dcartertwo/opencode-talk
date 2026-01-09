@@ -2,6 +2,8 @@
 
 A voice interface for [OpenCode](https://opencode.ai) - talk to your codebase naturally.
 
+> **Status:** Active development. Core functionality works but expect rough edges. See [Known Issues](#known-issues) below.
+
 ## Installation
 
 ### Prerequisites
@@ -254,6 +256,28 @@ npm run build
 
 See [AGENTS.md](./AGENTS.md) for architecture documentation.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
+
+---
+
+## Known Issues
+
+Current limitations and work in progress:
+
+| Issue | Status | Workaround |
+|-------|--------|------------|
+| Kokoro TTS server must be running separately | Planned | Falls back to Piper/macOS automatically |
+| No visual indicator when TTS engine falls back | In Progress | Check console logs |
+| Connection can drop without clear notification | Fixed | Now shows Wifi icon status |
+| Stopping speech sometimes leaves orphan processes | Fixed | Now tracks PIDs properly |
+
+### Recent Improvements (v0.1.1)
+
+- **Better connection handling** - Visual Wifi/WifiOff indicator, "Connecting..." state
+- **Toast notifications** - Errors and warnings now show as dismissible toasts  
+- **Safer TTS stop** - Only kills our own audio processes, not system-wide
+- **Request cancellation** - Properly aborts in-flight requests when stopping
+- **Confirmation timeout** - Pending confirmations auto-cancel after 30 seconds
+- **Incomplete response warning** - Messages show warning if response was cut off
 
 ---
 

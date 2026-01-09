@@ -14,7 +14,7 @@ import { formatForVoice } from './response-formatter';
 import { requiresConfirmation, describeAction } from './confirmation';
 import { useConversationStore } from '../stores/conversation';
 import { useSettingsStore } from '../stores/settings';
-import { createSentenceBuffer } from './sentence-buffer';
+import { createSentenceBuffer, type SentenceBuffer } from './sentence-buffer';
 
 // Voice mode system prompt addition
 const VOICE_MODE_PROMPT = `
@@ -87,15 +87,48 @@ export let currentSessionId: string | null = null;
 let activeEventSource: EventSource | null = null;
 // Track if we're currently streaming a response
 let isStreamingResponse = false;
+// Current request ID for handling concurrent requests
+let currentRequestId: string | null = null;
+// Active sentence buffer for cleanup
+let activeSentenceBuffer: SentenceBuffer | null = null;
+
+/**
+ * Check if currently streaming a response
+ */
+export function isStreaming(): boolean {
+  return isStreamingResponse;
+}
+
+/**
+ * Reset all streaming state (used for cleanup)
+ */
+function resetStreamingState(): void {
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+  isStreamingResponse = false;
+  currentRequestId = null;
+  if (activeSentenceBuffer) {
+    activeSentenceBuffer.clear();
+    activeSentenceBuffer = null;
+  }
+}
 
 /**
  * Initialize connection to OpenCode server
  */
 export async function connect(url: string): Promise<boolean> {
   serverUrl = url;
+  const store = useConversationStore.getState();
+  
+  // Set connecting state
+  store.setConnecting(true);
   
   try {
-    const response = await fetch(`${serverUrl}/global/health`);
+    const response = await fetch(`${serverUrl}/global/health`, {
+      signal: AbortSignal.timeout(10000), // 10 second timeout
+    });
     if (!response.ok) {
       throw new Error('Server not healthy');
     }
@@ -103,7 +136,7 @@ export async function connect(url: string): Promise<boolean> {
     const health: HealthResponse = await response.json();
     
     if (health.healthy) {
-      useConversationStore.getState().setConnectionStatus(true);
+      store.setConnectionStatus(true);
       console.log('Connected to OpenCode server:', health.version);
       return true;
     }
@@ -111,7 +144,7 @@ export async function connect(url: string): Promise<boolean> {
     throw new Error('Server not healthy');
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    useConversationStore.getState().setConnectionStatus(false, message);
+    store.setConnectionStatus(false, message);
     console.error('Failed to connect to OpenCode:', message);
     return false;
   }
@@ -121,8 +154,14 @@ export async function connect(url: string): Promise<boolean> {
  * Disconnect from OpenCode server
  */
 export function disconnect(): void {
+  // Clean up all streaming state
+  resetStreamingState();
+  
   currentSessionId = null;
-  useConversationStore.getState().setConnectionStatus(false);
+  
+  const store = useConversationStore.getState();
+  store.setConnectionStatus(false);
+  store.stopStreaming();
 }
 
 /**
@@ -134,13 +173,20 @@ export async function getOrCreateSession(): Promise<Session | null> {
   // If we have an existing session, try to get it
   if (store.sessionId) {
     try {
-      const response = await fetch(`${serverUrl}/session/${store.sessionId}`);
+      const response = await fetch(`${serverUrl}/session/${store.sessionId}`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (response.ok) {
         const session: Session = await response.json();
         return session;
       }
-    } catch {
-      // Session not found, create a new one
+      // 404 means session doesn't exist anymore, create new one
+      if (response.status !== 404) {
+        console.warn(`Session fetch returned ${response.status}`);
+      }
+    } catch (error) {
+      // Network error - different from 404
+      console.warn('Failed to fetch existing session:', error);
     }
   }
   
@@ -150,6 +196,7 @@ export async function getOrCreateSession(): Promise<Session | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Voice Session' }),
+      signal: AbortSignal.timeout(10000),
     });
     
     if (response.ok) {
@@ -158,6 +205,8 @@ export async function getOrCreateSession(): Promise<Session | null> {
       currentSessionId = session.id;
       return session;
     }
+    
+    console.error(`Failed to create session: HTTP ${response.status}`);
   } catch (error) {
     console.error('Failed to create session:', error);
   }
@@ -186,11 +235,7 @@ export async function sendMessage(text: string): Promise<string | null> {
   
   // IMPORTANT: Clean up any existing streaming state before starting
   // This fixes the issue where subsequent recordings don't work
-  if (activeEventSource) {
-    activeEventSource.close();
-    activeEventSource = null;
-  }
-  isStreamingResponse = false;
+  resetStreamingState();
   store.stopStreaming();
   
   // Check for "new conversation" command
@@ -245,6 +290,10 @@ async function sendMessageStreaming(
 ): Promise<string | null> {
   const store = useConversationStore.getState();
   
+  // Generate a unique request ID
+  const requestId = crypto.randomUUID();
+  currentRequestId = requestId;
+  
   // Start streaming state
   store.startStreaming();
   store.setVoiceState('speaking');
@@ -257,6 +306,10 @@ async function sendMessageStreaming(
   // Create sentence buffer that queues TTS for each sentence
   const sentenceBuffer = createSentenceBuffer(
     (sentence) => {
+      // Check if this request is still active
+      if (currentRequestId !== requestId) {
+        return;
+      }
       // Fire-and-forget: queue TTS without waiting
       invoke('speak_sentence', {
         text: sentence,
@@ -268,10 +321,21 @@ async function sendMessageStreaming(
       });
     },
     (fullText) => {
+      // Check if this request is still active
+      if (currentRequestId !== requestId) {
+        return;
+      }
       // Update UI with streaming text
       store.setStreamingText(fullText);
+    },
+    (error, sentence) => {
+      // Error callback for sentence buffer
+      console.error('[SentenceBuffer] Error processing sentence:', error, sentence);
     }
   );
+  
+  // Track the sentence buffer for cleanup
+  activeSentenceBuffer = sentenceBuffer;
   
   return new Promise((resolve, reject) => {
     // Set up SSE connection for events
@@ -516,16 +580,15 @@ export async function speak(text: string): Promise<void> {
 export async function stopSpeaking(): Promise<void> {
   const store = useConversationStore.getState();
   
-  // Close any active SSE connection
-  if (activeEventSource) {
-    activeEventSource.close();
-    activeEventSource = null;
-  }
+  // Clean up all streaming state
+  resetStreamingState();
+  store.stopStreaming();
   
-  // Stop streaming state
-  if (isStreamingResponse) {
-    isStreamingResponse = false;
-    store.stopStreaming();
+  try {
+    // Clear the audio queue and stop current playback
+    await invoke('clear_audio_queue');
+  } catch (error) {
+    console.error('Error clearing audio queue:', error);
   }
   
   try {

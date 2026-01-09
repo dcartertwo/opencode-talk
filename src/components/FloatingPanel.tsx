@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, Volume2, Loader2, Settings, MessageSquare } from 'lucide-react';
+import { Mic, Volume2, Loader2, Settings, MessageSquare, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useOpenCode } from '../hooks/useOpenCode';
 import { useVoiceInput } from '../hooks/useVoiceInput';
@@ -11,7 +11,7 @@ import { StatusIndicator } from './StatusIndicator';
 
 export function FloatingPanel() {
   const settings = useSettingsStore();
-  const { streamingText, isStreaming } = useConversationStore();
+  const { streamingText, isStreaming, isConnecting } = useConversationStore();
   const { 
     isConnected, 
     connectionError, 
@@ -55,12 +55,24 @@ export function FloatingPanel() {
       <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <StatusIndicator state={voiceState} />
-          <span className="text-xs text-gray-600 dark:text-gray-400">
-            {isConnected 
-              ? projectPath?.split('/').pop() || 'Connected'
-              : connectionError || 'Disconnected'
-            }
-          </span>
+          <div className="flex items-center gap-1.5">
+            {/* Connection status icon */}
+            {isConnecting ? (
+              <Loader2 className="w-3 h-3 text-yellow-500 animate-spin" />
+            ) : isConnected ? (
+              <Wifi className="w-3 h-3 text-green-500" />
+            ) : (
+              <WifiOff className="w-3 h-3 text-red-500" />
+            )}
+            <span className="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[120px]" title={connectionError || undefined}>
+              {isConnecting 
+                ? 'Connecting...'
+                : isConnected 
+                  ? projectPath?.split('/').pop() || 'Connected'
+                  : connectionError || 'Disconnected'
+              }
+            </span>
+          </div>
         </div>
         
         <button
@@ -96,12 +108,19 @@ export function FloatingPanel() {
                   'max-w-[85%] rounded-2xl px-4 py-2',
                   message.role === 'user'
                     ? 'bg-blue-500 text-white rounded-br-md'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md',
+                  message.isIncomplete && 'border-2 border-yellow-400 dark:border-yellow-600'
                 )}
               >
                 <p className="text-sm whitespace-pre-wrap">
                   {message.spokenContent || message.content}
                 </p>
+                {message.isIncomplete && (
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Response may be incomplete
+                  </p>
+                )}
               </div>
               <span className="text-xs text-gray-400 dark:text-gray-500 px-2">
                 {formatRelativeTime(message.timestamp)}

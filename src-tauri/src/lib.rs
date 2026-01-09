@@ -18,7 +18,6 @@ pub struct AppState {
     pub is_speaking: bool,
     pub is_processing: bool,
     pub current_session_id: Option<String>,
-    pub audio_handle: Option<audio::AudioHandle>,
 }
 
 pub type SharedState = Arc<Mutex<AppState>>;

@@ -99,9 +99,3 @@ pub fn start_server(app_handle: AppHandle) {
         }
     });
 }
-
-/// Get the transcription server URL for configuring Macrowhisper
-#[allow(dead_code)]
-pub fn get_server_url() -> String {
-    format!("http://127.0.0.1:{}/transcription", SERVER_PORT)
-}

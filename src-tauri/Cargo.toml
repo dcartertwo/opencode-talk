@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Voice interface for OpenCode"
 authors = ["Dan"]
 edition = "2021"
+default-run = "opencode-talk"
 
 [lib]
 name = "opencode_talk_lib"

@@ -459,21 +459,32 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Clean up Kokoro server when app closes
-            if let tauri::WindowEvent::Destroyed = event {
-                if window.label() == "main" {
-                    cleanup_kokoro_server();
+            match event {
+                // Hide window instead of closing (menu bar app behavior)
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let _ = window.hide();
+                    api.prevent_close();
                 }
+                // Clean up when app is actually destroyed (e.g., via Quit)
+                tauri::WindowEvent::Destroyed => {
+                    if window.label() == "main" {
+                        cleanup_all();
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
-// Kill the Kokoro server process on app exit
-fn cleanup_kokoro_server() {
+// Clean up all resources on app exit
+fn cleanup_all() {
+    // Gracefully shutdown the audio player thread
+    tts::shutdown_audio_player();
+    
+    // Kill the Kokoro TTS server process
     use std::process::Command;
-    // Kill any running kokoro_server.py processes
     let _ = Command::new("pkill")
         .args(["-f", "kokoro_server.py"])
         .output();

@@ -267,14 +267,13 @@ Current limitations and work in progress:
 |-------|--------|------------|
 | Kokoro TTS server must be running separately | Planned | Falls back to Piper/macOS automatically |
 | No visual indicator when TTS engine falls back | In Progress | Check console logs |
-| Connection can drop without clear notification | Fixed | Now shows Wifi icon status |
-| Stopping speech sometimes leaves orphan processes | Fixed | Now tracks PIDs properly |
 
-### Recent Improvements (v0.1.1)
+### Recent Improvements (v0.1.2)
 
+- **Zero-gap audio playback** - Replaced afplay subprocess with rodio for seamless sentence transitions
+- **No more orphan processes** - Audio runs in-process, no external processes to track/kill
 - **Better connection handling** - Visual Wifi/WifiOff indicator, "Connecting..." state
 - **Toast notifications** - Errors and warnings now show as dismissible toasts  
-- **Safer TTS stop** - Only kills our own audio processes, not system-wide
 - **Request cancellation** - Properly aborts in-flight requests when stopping
 - **Confirmation timeout** - Pending confirmations auto-cancel after 30 seconds
 - **Incomplete response warning** - Messages show warning if response was cut off

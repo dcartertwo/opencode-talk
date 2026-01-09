@@ -75,9 +75,14 @@ Since this is primarily a voice interface, testing is manual:
 ### Quick Checks
 
 - [ ] App launches without errors
+- [ ] Status bar shows spinner during startup
+- [ ] "⌥Space ready" appears when hotkey registered
+- [ ] "Ready for voice input" toast appears
+- [ ] Red warning shows if hotkey registration fails (test by conflicting hotkey)
 - [ ] Connects to OpenCode server
 - [ ] Voice input works (if SuperWhisper configured)
 - [ ] TTS plays audio
+- [ ] TTS engine name appears in status bar
 - [ ] Streaming text appears in real-time
 - [ ] Interruption stops playback
 

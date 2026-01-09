@@ -140,7 +140,9 @@ Just type in the text box and press Enter. Skip this section entirely.
 
 | Test | Expected Result |
 |------|-----------------|
-| App launches | Window opens, no crash |
+| App launches | Spinner in status bar while preparing |
+| Status shows "⌥Space ready" | Hotkey registered successfully |
+| "Ready for voice input" toast | All systems operational |
 | Status shows "Connected" | OpenCode server is running |
 | Type a message, press Enter | Response appears + audio plays |
 | Audio plays | You hear the response spoken |
@@ -150,6 +152,15 @@ If voice input is configured:
 |------|-----------------|
 | Press Option+Space and speak | Your words appear in input box |
 | Press Enter | Response with audio |
+
+### Status Bar Indicators
+
+The status bar shows real-time system status:
+
+- **Spinner** - App is preparing (connecting, registering hotkeys)
+- **⌥Space ready** (green) - Hotkey registered and ready for voice input
+- **⌥Space ⚠️** (red) - Hotkey registration failed (hover for details)
+- **TTS engine name** - Shows active TTS engine (Kokoro, Piper, etc.)
 
 ---
 
@@ -222,6 +233,20 @@ In Settings, set TTS Engine to `macos`. This always works.
 2. Add OpenCode Talk to the list
 3. Restart the app
 
+**Hotkey shows red warning icon (⚠️):**
+
+The status bar shows a red warning icon next to the hotkey if registration failed:
+
+1. **Conflict with another app** - Another app may have the same hotkey registered
+   - Check SuperWhisper, Alfred, Raycast, or similar apps using Option+Space
+   - Change the hotkey in OpenCode Talk Settings
+
+2. **Accessibility permission needed**
+   - System Settings → Privacy & Security → Accessibility
+   - Add/enable OpenCode Talk
+
+3. **Restart the app** after changing settings or permissions
+
 ---
 
 ## Usage
@@ -266,9 +291,15 @@ Current limitations and work in progress:
 | Issue | Status | Workaround |
 |-------|--------|------------|
 | Kokoro TTS server must be running separately | Planned | Falls back to Piper/macOS automatically |
-| No visual indicator when TTS engine falls back | In Progress | Check console logs |
 
-### Recent Improvements (v0.1.2)
+### Recent Improvements (v0.1.3)
+
+- **Readiness indicators** - Status bar shows when app is ready for voice input
+- **Hotkey status** - Visual confirmation that hotkey is registered and working
+- **TTS engine display** - Shows active TTS engine (with fallback indicator)
+- **"Ready" toast** - Notification when all systems are operational
+
+### Previous Improvements (v0.1.2)
 
 - **Zero-gap audio playback** - Replaced afplay subprocess with rodio for seamless sentence transitions
 - **No more orphan processes** - Audio runs in-process, no external processes to track/kill

@@ -88,15 +88,18 @@ export function useVoiceInput() {
   useEffect(() => {
     let mounted = true;
     
+    // Reset hotkey ready state when re-registering
+    conversation.setHotkeyReady(false);
+    
     const registerShortcuts = async () => {
+      // Convert hotkey format for Tauri
+      const pttHotkey = settings.pushToTalkHotkey
+        .replace('Option', 'Alt')
+        .replace('Command', 'Meta');
+      
+      const interruptHotkey = settings.interruptHotkey;
+      
       try {
-        // Convert hotkey format for Tauri
-        let pttHotkey = settings.pushToTalkHotkey
-          .replace('Option', 'Alt')
-          .replace('Command', 'Meta');
-        
-        const interruptHotkey = settings.interruptHotkey;
-        
         console.log('Registering push-to-talk hotkey:', pttHotkey);
         
         // Register push-to-talk (press to start, release to stop)
@@ -129,6 +132,12 @@ export function useVoiceInput() {
           });
         }
         
+        // Mark hotkey as ready (use display format for UI)
+        if (mounted) {
+          conversation.setHotkeyReady(true, settings.pushToTalkHotkey);
+          console.log('Hotkey registered successfully:', settings.pushToTalkHotkey);
+        }
+        
         shortcutUnlistenRef.current = async () => {
           try {
             await unregister(pttHotkey);
@@ -140,7 +149,13 @@ export function useVoiceInput() {
           }
         };
       } catch (error) {
-        console.error('Failed to register shortcuts:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('Failed to register shortcuts:', errorMessage);
+        
+        if (mounted) {
+          conversation.setHotkeyReady(false);
+          conversation.setHotkeyError(`Hotkey registration failed: ${errorMessage}`);
+        }
       }
     };
     
@@ -148,6 +163,7 @@ export function useVoiceInput() {
     
     return () => {
       mounted = false;
+      conversation.setHotkeyReady(false);
       shortcutUnlistenRef.current?.();
     };
   }, [settings.pushToTalkHotkey, settings.interruptHotkey, conversation, startListening, stopListening]);

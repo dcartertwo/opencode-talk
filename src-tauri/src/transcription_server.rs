@@ -1,9 +1,7 @@
-/**
- * Local HTTP server to receive transcriptions from Macrowhisper
- * 
- * Macrowhisper is configured to POST transcriptions to http://localhost:7891/transcription
- * We receive the text and emit it as a Tauri event to the frontend.
- */
+//! Local HTTP server to receive transcriptions from Macrowhisper
+//!
+//! Macrowhisper is configured to POST transcriptions to http://localhost:7891/transcription
+//! We receive the text and emit it as a Tauri event to the frontend.
 
 use std::thread;
 use tauri::{AppHandle, Emitter};

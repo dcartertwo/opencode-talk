@@ -624,7 +624,7 @@ async fn speak_kokoro(text: &str, voice: &str, speed: f32) -> Result<(), String>
     let temp_file = format!("/tmp/opencode-talk-{}.wav", std::process::id());
     
     // Python script to run Kokoro
-    let python_script = format!(r#"
+    const KOKORO_SCRIPT: &str = r#"
 import sys
 try:
     from kokoro import KPipeline
@@ -651,16 +651,16 @@ try:
         print("No audio generated")
         sys.exit(1)
 except ImportError as e:
-    print(f"Kokoro not installed: {{e}}")
+    print(f"Kokoro not installed: {e}")
     sys.exit(1)
 except Exception as e:
-    print(f"Error: {{e}}")
+    print(f"Error: {e}")
     sys.exit(1)
-"#);
+"#;
     
     // Write script to temp file
     let script_file = format!("/tmp/opencode-talk-kokoro-{}.py", std::process::id());
-    tokio::fs::write(&script_file, &python_script).await
+    tokio::fs::write(&script_file, KOKORO_SCRIPT).await
         .map_err(|e| format!("Failed to write script: {}", e))?;
     
     // Run the Python script

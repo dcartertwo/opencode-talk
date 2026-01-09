@@ -70,6 +70,12 @@ interface ConversationStore {
   // Hotkey status
   hotkeyError: string | null;
   
+  // Readiness state
+  isHotkeyReady: boolean;
+  hotkeyRegistered: string | null;
+  isTtsReady: boolean;
+  ttsEngineReady: string | null;
+  
   // Actions
   setSessionId: (id: string | null) => void;
   setProjectPath: (path: string | null) => void;
@@ -97,6 +103,9 @@ interface ConversationStore {
   setTtsError: (error: string | null) => void;
   // Hotkey status
   setHotkeyError: (error: string | null) => void;
+  // Readiness actions
+  setHotkeyReady: (ready: boolean, hotkey?: string | null) => void;
+  setTtsReady: (ready: boolean, engine?: string | null) => void;
   reset: () => void;
 }
 
@@ -123,6 +132,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
   activeTtsEngine: null,
   ttsError: null,
   hotkeyError: null,
+  isHotkeyReady: false,
+  hotkeyRegistered: null,
+  isTtsReady: false,
+  ttsEngineReady: null,
   
   // Actions
   setSessionId: (id) => set({ sessionId: id }),
@@ -317,6 +330,23 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     }
   },
   
+  // Readiness actions
+  setHotkeyReady: (ready, hotkey = null) => {
+    set({ 
+      isHotkeyReady: ready, 
+      hotkeyRegistered: ready ? hotkey : null,
+      // Clear error when hotkey becomes ready
+      hotkeyError: ready ? null : get().hotkeyError,
+    });
+  },
+  
+  setTtsReady: (ready, engine = null) => {
+    set({ 
+      isTtsReady: ready, 
+      ttsEngineReady: ready ? engine : null,
+    });
+  },
+  
   reset: () => {
     const state = get();
     if (state.confirmationTimeoutId) {
@@ -340,6 +370,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       activeTtsEngine: null,
       ttsError: null,
       hotkeyError: null,
+      isHotkeyReady: false,
+      hotkeyRegistered: null,
+      isTtsReady: false,
+      ttsEngineReady: null,
     });
   },
 }));

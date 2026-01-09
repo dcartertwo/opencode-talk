@@ -36,7 +36,7 @@ export function Ready() {
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}
-        className="mt-6 text-2xl font-semibold text-gray-900"
+        className="mt-6 text-2xl font-semibold text-gray-900 dark:text-gray-100"
       >
         You're all set!
       </motion.h1>
@@ -46,15 +46,15 @@ export function Ready() {
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="mt-8 p-4 rounded-lg bg-gray-50 border border-gray-200 max-w-sm w-full"
+        className="mt-8 p-4 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 max-w-sm w-full"
       >
         <div className="flex items-start gap-3">
           <Keyboard className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
           <div className="text-sm">
-            <p className="text-gray-700">
-              Press <span className="font-medium text-gray-900">{hotkey}</span> to start talking
+            <p className="text-gray-700 dark:text-gray-300">
+              Press <span className="font-medium text-gray-900 dark:text-gray-100">{hotkey}</span> to start talking
             </p>
-            <p className="mt-2 text-gray-500">
+            <p className="mt-2 text-gray-500 dark:text-gray-400">
               Press <span className="font-medium">Escape</span> to stop or interrupt
             </p>
           </div>

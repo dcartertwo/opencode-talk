@@ -23,8 +23,8 @@ export function StubStep({ title, nextStep, skipStep }: StubStepProps) {
         onClick: () => goToStep(nextStep),
       }}
     >
-      <div className="flex items-center justify-center h-48 rounded-lg bg-gray-50 border-2 border-dashed border-gray-200">
-        <p className="text-gray-400 text-sm">Step content placeholder</p>
+      <div className="flex items-center justify-center h-48 rounded-lg bg-gray-50 dark:bg-gray-800 border-2 border-dashed border-gray-200 dark:border-gray-700">
+        <p className="text-gray-400 dark:text-gray-500 text-sm">Step content placeholder</p>
       </div>
     </StepContainer>
   );

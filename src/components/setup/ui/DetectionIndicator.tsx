@@ -58,8 +58,8 @@ export function DetectionIndicator({ status, labels, className }: DetectionIndic
       <span className={cn(
         'text-sm',
         status === 'success' && 'text-green-600',
-        status === 'missing' && 'text-gray-500',
-        status === 'checking' && 'text-gray-400',
+        status === 'missing' && 'text-gray-500 dark:text-gray-400',
+        status === 'checking' && 'text-gray-400 dark:text-gray-500',
         status === 'error' && 'text-red-600',
       )}>
         {label}

@@ -25,10 +25,10 @@ export function RadioCard({
       disabled={disabled}
       className={cn(
         'w-full p-4 rounded-lg border-2 text-left transition-all duration-150',
-        'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#F6821F]',
+        'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#F6821F] dark:focus:ring-offset-gray-900',
         selected
-          ? 'border-[#F6821F] bg-orange-50'
-          : 'border-gray-200 hover:border-gray-300 bg-white',
+          ? 'border-[#F6821F] bg-orange-50 dark:bg-orange-950/30'
+          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800',
         disabled && 'opacity-50 cursor-not-allowed',
         className
       )}
@@ -40,7 +40,7 @@ export function RadioCard({
           'transition-colors duration-150',
           selected
             ? 'border-[#F6821F] bg-[#F6821F]'
-            : 'border-gray-300'
+            : 'border-gray-300 dark:border-gray-600'
         )}>
           {selected && (
             <div className="w-2 h-2 rounded-full bg-white" />
@@ -52,7 +52,7 @@ export function RadioCard({
           <div className="flex items-center gap-2">
             <span className={cn(
               'font-medium',
-              selected ? 'text-gray-900' : 'text-gray-700'
+              selected ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'
             )}>
               {title}
             </span>
@@ -62,7 +62,7 @@ export function RadioCard({
               </span>
             )}
           </div>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {description}
           </p>
         </div>

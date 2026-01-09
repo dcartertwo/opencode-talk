@@ -11,7 +11,7 @@ export function BackButton({ onClick, className }: BackButtonProps) {
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1 text-gray-500 hover:text-gray-700',
+        'flex items-center gap-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
         'transition-colors duration-150',
         'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 rounded',
         '-ml-1 py-1 pr-2',

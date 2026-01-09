@@ -136,7 +136,7 @@ export function SetupWizard() {
   }, [refreshDetection]);
   
   return (
-    <div className="h-screen flex flex-col bg-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Progress indicator - hide on welcome and ready */}
       {currentStep !== 'welcome' && currentStep !== 'ready' && (
         <SetupProgress />

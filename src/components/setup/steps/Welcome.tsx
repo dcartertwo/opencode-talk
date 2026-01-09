@@ -13,12 +13,12 @@ export function Welcome() {
       </div>
       
       {/* Title */}
-      <h1 className="mt-8 text-2xl font-semibold text-gray-900 text-center">
+      <h1 className="mt-8 text-2xl font-semibold text-gray-900 dark:text-gray-100 text-center">
         Welcome to OpenCode Talk
       </h1>
       
       {/* Description */}
-      <p className="mt-3 text-gray-500 text-center max-w-sm">
+      <p className="mt-3 text-gray-500 dark:text-gray-400 text-center max-w-sm">
         Talk naturally with your AI coding assistant. Let's get you set up in a few minutes.
       </p>
       

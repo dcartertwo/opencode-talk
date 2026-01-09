@@ -19,7 +19,7 @@ export function SetupProgress() {
               ? 'bg-[#F6821F]'
               : index === currentIndex
               ? 'bg-[#F6821F]'
-              : 'bg-gray-200'
+              : 'bg-gray-200 dark:bg-gray-700'
           )}
           initial={false}
           animate={{

@@ -134,6 +134,29 @@
   animation: slide-in 0.2s ease-out;
 }
 
+/* Typing cursor for streaming text */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background-color: #3b82f6; /* blue-500 */
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* Dark mode cursor */
+@media (prefers-color-scheme: dark) {
+  .typing-cursor {
+    background-color: #60a5fa; /* blue-400 */
+  }
+}
+
 /* Focus styles */
 *:focus {
   outline: none;

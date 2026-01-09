@@ -251,6 +251,16 @@ The status bar shows a red warning icon next to the hotkey if registration faile
 
 ## Usage
 
+### Menu Bar App
+
+OpenCode Talk runs as a menu bar app:
+
+- **Close window** (`⌘W` or red X) - Hides the window, app stays running in menu bar
+- **Quit app** (`⌘Q`) - Fully quits the application
+- **Tray icon** - Click to show/hide the main window, right-click for menu
+
+To fully quit, use `⌘Q` or right-click the tray icon and select "Quit OpenCode Talk".
+
 ### Hotkeys
 
 | Action | Hotkey |
